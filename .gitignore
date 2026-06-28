@@ -1,0 +1,9 @@
+# Secrets and local environment
+.env
+
+# Traefik ACME store
+acme.json
+
+# PaperQA runtime artifacts (papers, indexes, caches, extracted media)
+paperqa/__pycache__/
+papers/

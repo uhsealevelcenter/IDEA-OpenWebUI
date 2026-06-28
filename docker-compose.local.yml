@@ -1,0 +1,63 @@
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: unless-stopped
+    environment:
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
+      - OPEN_TERMINAL_API_KEY=${OPEN_TERMINAL_API_KEY}
+    ports:
+      - "3000:8080"
+    volumes:
+      - open-webui-local:/app/backend/data
+    networks:
+      - web
+
+  open-terminal:
+    build:
+      context: ./paperqa
+      dockerfile: Dockerfile
+    image: openwebui-open-terminal-paperqa:latest
+    container_name: open-terminal
+    restart: unless-stopped
+    environment:
+      - OPEN_TERMINAL_API_KEY=${OPEN_TERMINAL_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    ports:
+      - "8000:8000"
+    volumes:
+      - open-terminal-local:/home/user
+      # Live-edit the baked scripts during local dev (overrides image copy).
+      - ./paperqa:/opt/paperqa
+    networks:
+      - web
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n
+    container_name: n8n
+    restart: unless-stopped
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - NODE_ENV=development
+      - WEBHOOK_URL=http://localhost:5678/
+      - N8N_EDITOR_BASE_URL=http://localhost:5678/
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_RUNNERS_ENABLED=true
+      - GENERIC_TIMEZONE=Pacific/Honolulu
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n-local:/home/node/.n8n
+    networks:
+      - web
+
+networks:
+  web:
+    driver: bridge
+
+volumes:
+  open-terminal-local:
+  open-webui-local:
+  n8n-local:

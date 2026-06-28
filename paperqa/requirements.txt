@@ -1,0 +1,9 @@
+# PaperQA knowledge-base dependencies for the Open Terminal environment.
+#
+# Baked into the custom Open Terminal image (see Dockerfile) via
+# `pip install -r requirements.txt`.
+#
+# The [pymupdf] extra pulls in the paper-qa-pymupdf reader (imported as
+# paperqa_pymupdf) for better figure/table extraction.
+paper-qa[pymupdf]>=5
+nest-asyncio
