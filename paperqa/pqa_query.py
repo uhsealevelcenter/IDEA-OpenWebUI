@@ -124,36 +124,29 @@ def _save_base64_image(data_url: str, output_dir: Path, prefix: str = "kb_figure
         return None
 
 
-async def _query_async(query: str) -> dict:
-    t_start = time.perf_counter()
+async def _build_index_and_docs(settings):
+    """Build/reuse the search index and the (cached) Docs object.
 
-    _log("[PQA] Step 1: Loading settings...")
-    settings = create_pqa_settings()
-    _log(f"[PQA] LLM: {settings.llm}, Embedding: {settings.embedding}")
-
-    _log("[PQA] Step 2: Building/loading index...")
+    Returns (docs, n_files). docs is None when there are no papers yet.
+    Shared by both the query path and the --prebuild path.
+    """
+    _log("[PQA] Building/loading index...")
     t_idx = time.perf_counter()
     index = await get_directory_index(settings=settings)
     _log(f"[PQA] Index loaded in {time.perf_counter() - t_idx:.2f}s.")
 
     index_files = await index.index_files
     if not index_files:
-        return {
-            "answer": (
-                f"No papers found in your knowledge base. "
-                f"Please add PDFs to {PAPERS_DIR} first."
-            ),
-            "images": [],
-        }
+        return None, 0
     _log(f"[PQA] Found {len(index_files)} indexed file(s).")
 
     revision = _compute_revision(index_files)
 
     docs = _load_docs_from_disk(revision)
     if docs is not None:
-        _log("[PQA] Step 3: Loaded Docs from disk cache.")
+        _log("[PQA] Loaded Docs from disk cache.")
     else:
-        _log("[PQA] Step 3: Building Docs object (no cache available)...")
+        _log("[PQA] Building Docs object (no cache available)...")
         t_docs = time.perf_counter()
         docs = Docs()
         paper_directory = settings.agent.index.paper_directory
@@ -164,6 +157,46 @@ async def _query_async(query: str) -> dict:
                 await docs.aadd(full_path, settings=settings)
         _save_docs_to_disk(docs, revision)
         _log(f"[PQA] Docs built in {time.perf_counter() - t_docs:.2f}s.")
+
+    return docs, len(index_files)
+
+
+async def _prebuild_async() -> dict:
+    """Parse + embed all papers and cache the Docs object, without querying.
+
+    Intended to be fired after a new PDF is uploaded so the first real query
+    is fast. Safe to run repeatedly: it short-circuits when the cache is fresh.
+    """
+    t_start = time.perf_counter()
+    _log("[PQA] Prebuild: loading settings...")
+    settings = create_pqa_settings()
+
+    docs, n_files = await _build_index_and_docs(settings)
+    if docs is None:
+        msg = f"No papers found in {PAPERS_DIR}; nothing to prebuild."
+        _log(f"[PQA] {msg}")
+        return {"status": "empty", "message": msg, "indexed_files": 0}
+
+    _log(f"[PQA] Prebuild complete in {time.perf_counter() - t_start:.2f}s.")
+    return {"status": "ready", "indexed_files": n_files}
+
+
+async def _query_async(query: str) -> dict:
+    t_start = time.perf_counter()
+
+    _log("[PQA] Step 1: Loading settings...")
+    settings = create_pqa_settings()
+    _log(f"[PQA] LLM: {settings.llm}, Embedding: {settings.embedding}")
+
+    docs, _n_files = await _build_index_and_docs(settings)
+    if docs is None:
+        return {
+            "answer": (
+                f"No papers found in your knowledge base. "
+                f"Please add PDFs to {PAPERS_DIR} first."
+            ),
+            "images": [],
+        }
 
     _log(f"[PQA] Step 4: Querying: '{query}'...")
     t_query = time.perf_counter()
@@ -222,19 +255,41 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Query the local PaperQA knowledge base (~/papers)."
     )
-    parser.add_argument("query", help="The question to ask about the papers.")
+    parser.add_argument(
+        "query",
+        nargs="?",
+        default=None,
+        help="The question to ask about the papers. Omit when using --prebuild.",
+    )
     parser.add_argument(
         "--json",
         action="store_true",
-        help="Emit the full result (answer + images) as JSON on stdout.",
+        help="Emit the full result as JSON on stdout.",
+    )
+    parser.add_argument(
+        "--prebuild",
+        action="store_true",
+        help="Build/refresh the index and Docs cache without querying, then exit.",
     )
     args = parser.parse_args()
+
+    if not args.prebuild and not args.query:
+        parser.error("a query is required unless --prebuild is given")
 
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+
+    if args.prebuild:
+        result = loop.run_until_complete(_prebuild_async())
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            print(result.get("message", f"Prebuild {result.get('status')}: "
+                                         f"{result.get('indexed_files', 0)} file(s) indexed"))
+        return 0
 
     result = loop.run_until_complete(_query_async(args.query))
 
