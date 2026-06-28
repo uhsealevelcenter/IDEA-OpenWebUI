@@ -14,6 +14,8 @@ services:
       - "--certificatesresolvers.le.acme.httpchallenge.entrypoint=web"
       - "--certificatesresolvers.le.acme.email=komar@hawaii.edu"
       - "--certificatesresolvers.le.acme.storage=/acme.json"
+      # Keep long-running streamed responses (chat tokens, tool calls) alive.
+      - "--entrypoints.websecure.transport.respondingTimeouts.idleTimeout=600s"
     ports:
       - "80:80"
       - "443:443"
@@ -62,6 +64,8 @@ services:
       - "traefik.http.routers.open-webui.entrypoints=websecure"
       - "traefik.http.routers.open-webui.tls.certresolver=le"
       - "traefik.http.services.open-webui.loadbalancer.server.port=8080"
+      # Flush streamed (SSE) chat responses immediately instead of buffering.
+      - "traefik.http.services.open-webui.loadbalancer.responseforwarding.flushinterval=-1s"
 
   n8n:
     image: docker.n8n.io/n8nio/n8n
