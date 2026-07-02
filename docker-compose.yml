@@ -38,6 +38,9 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
     volumes:
       - open-terminal:/home
+      # Shared cache for tool-generated data (e.g. climate index CSVs),
+      # readable from user terminal sessions at /shared.
+      - shared-data:/shared
     networks:
       - web
     labels:
@@ -56,6 +59,9 @@ services:
       - OPEN_TERMINAL_API_KEY=${OPEN_TERMINAL_API_KEY}
     volumes:
       - open-webui:/app/backend/data
+      # Same shared volume, mounted at the same path so tool-reported
+      # file paths are valid inside Open Terminal without translation.
+      - shared-data:/shared
     networks:
       - web
     labels:
@@ -100,3 +106,4 @@ volumes:
   open-terminal:
   open-webui:
   n8n:
+  shared-data:
